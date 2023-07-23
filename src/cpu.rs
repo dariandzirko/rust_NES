@@ -15,8 +15,29 @@ pub enum AddressingMode {
     NoneAddressing,
 }
 
+/// # Status Register (P) http://wiki.nesdev.com/w/index.php/Status_flags
+///
+///  7 6 5 4 3 2 1 0
+///  N V _ B D I Z C
+///  | |   | | | | +--- Carry Flag
+///  | |   | | | +----- Zero Flag
+///  | |   | | +------- Interrupt Disable
+///  | |   | +--------- Decimal Mode (not used on NES)
+///  | |   +----------- Break Command
+///  | +--------------- Overflow Flag
+///  +----------------- Negative Flag
+///
+const CARRY: u8 = 0b00000001;
+const ZERO: u8 = 0b00000010;
+const INTERRUPT_DISABLE: u8 = 0b00000100;
+const DECIMAL_MODE: u8 = 0b00001000;
+const BREAK: u8 = 0b00010000;
+const BREAK2: u8 = 0b00100000;
+const OVERFLOW: u8 = 0b01000000;
+const NEGATIV: u8 = 0b10000000;
+
 pub struct CPU {
-    pub register_a: u8,
+    pub accumulator: u8,
     pub register_x: u8,
     pub register_y: u8,
     pub status: u8,
@@ -27,7 +48,7 @@ pub struct CPU {
 impl CPU {
     pub fn new() -> Self {
         CPU {
-            register_a: 0,
+            accumulator: 0,
             register_x: 0,
             register_y: 0,
             status: 0,
@@ -56,7 +77,7 @@ impl CPU {
     }
 
     pub fn reset(&mut self) {
-        self.register_a = 0;
+        self.accumulator = 0;
         self.register_x = 0;
         self.status = 0;
 
@@ -66,6 +87,11 @@ impl CPU {
     pub fn load(&mut self, program: Vec<u8>) {
         self.memory[0x8000..(0x8000 + program.len())].copy_from_slice(&program[..]);
         self.mem_write_u16(0xFFFC, 0x8000);
+    }
+
+    fn set_accumulator(&mut self, value: u8) {
+        self.accumulator = value;
+        self.update_zero_and_negative_flags(self.accumulator);
     }
 
     pub fn run(&mut self) {
@@ -90,6 +116,14 @@ impl CPU {
                 0xe8 => {
                     self.inx();
                 }
+                //ADC
+                0x69 | 0x65 | 0x75 | 0x6d | 0x7d | 0x79 | 0x61 | 0x71 => self.adc(&opcode.mode),
+                //AND
+                0x29 | 0x25 | 0x35 | 0x2D | 0x3D | 0x39 | 0x21 | 0x31 => self.and(&opcode.mode),
+                //ASL Accumulator
+                0x0a => self.asl_accumulator(),
+                //ASL
+                0x06 | 0x16 | 0x0e | 0x1e => self.asl(&opcode.mode),
                 //LDA
                 0xa9 | 0xa5 | 0xb5 | 0xad | 0xbd | 0xb9 | 0xa1 | 0xb1 => self.lda(&opcode.mode),
                 //STA
@@ -154,26 +188,65 @@ impl CPU {
         }
     }
 
+    fn adc(&mut self, mode: &AddressingMode) {
+        let accum = self.accumulator as u16;
+        let mem_val = self.mem_read(self.get_operand_address(mode)) as u16;
+        let sum = (accum + mem_val + (self.status & CARRY) as u16) as u16;
+
+        if sum > 0xFF {
+            self.status = self.status | 0b0000_0001;
+        }
+
+        let result = sum as u8;
+
+        if (mem_val as u8 ^ result) & (self.accumulator ^ result) & 0x80 != 0 {
+            self.status = self.status | OVERFLOW;
+        } else {
+            self.status = self.status & !OVERFLOW;
+        }
+
+        self.set_accumulator(result);
+        //I feel like I need to do this
+        //self.update_zero_and_negative_flag(self.accumulator);
+    }
+
+    fn and(&mut self, mode: &AddressingMode) {
+        self.set_accumulator(self.accumulator & self.mem_read(self.get_operand_address(&mode)));
+    }
+
+    fn asl_accumulator(&mut self) {
+        if self.accumulator & 0x80 != 0 {
+            self.status = self.status | CARRY
+        } else {
+            self.status = self.status & !CARRY
+        }
+
+        self.set_accumulator(self.accumulator << 1);
+    }
+
+    fn asl(&mut self, mode: &AddressingMode) {
+        let mem_val = self.mem_read(self.get_operand_address(&mode));
+    }
+
     fn lda(&mut self, mode: &AddressingMode) {
-        self.register_a = self.mem_read(self.get_operand_address(mode));
-        self.update_zero_and_negative_flag(self.register_a);
+        self.set_accumulator(self.mem_read(self.get_operand_address(mode)));
     }
 
     fn tax(&mut self) {
-        self.register_x = self.register_a;
-        self.update_zero_and_negative_flag(self.register_x);
+        self.register_x = self.accumulator;
+        self.update_zero_and_negative_flags(self.register_x);
     }
 
     fn inx(&mut self) {
         self.register_x = self.register_x.wrapping_add(1);
-        self.update_zero_and_negative_flag(self.register_x);
+        self.update_zero_and_negative_flags(self.register_x);
     }
 
     fn sta(&mut self, mode: &AddressingMode) {
-        self.mem_write(self.get_operand_address(mode), self.register_a);
+        self.mem_write(self.get_operand_address(mode), self.accumulator);
     }
 
-    fn update_zero_and_negative_flag(&mut self, result: u8) {
+    fn update_zero_and_negative_flags(&mut self, result: u8) {
         if result == 0 {
             self.status = self.status | 0b0000_0010; //the negative flag is the 2nd bit which is set if the param is 0
         } else {
@@ -190,13 +263,13 @@ impl CPU {
 
 #[cfg(test)]
 mod test {
-    use crate::cpu::CPU;
+    use crate::cpu::{CARRY, CPU, OVERFLOW};
 
     #[test]
     fn test_0xa9_immediate_load_order() {
         let mut cpu = CPU::new();
         cpu.load_and_run(vec![0xa9, 0x05, 0x00]);
-        assert_eq!(cpu.register_a, 0x05);
+        assert_eq!(cpu.accumulator, 0x05);
         assert!(cpu.status & 0b0000_0010 == 0b00);
         assert!(cpu.status & 0b1000_0000 == 0);
     }
@@ -239,6 +312,37 @@ mod test {
 
         cpu.load_and_run(vec![0xa5, 0x10, 0x00]);
 
-        assert_eq!(cpu.register_a, 0x55);
+        assert_eq!(cpu.accumulator, 0x55);
+    }
+
+    #[test]
+    fn test_adc_from_memory() {
+        let mut cpu = CPU::new();
+        cpu.mem_write(0x10, 0x55);
+
+        cpu.load_and_run(vec![0xa5, 0x10, 0x69, 0xff, 0x00]);
+
+        assert_eq!(cpu.accumulator, 0x54);
+        assert_eq!(cpu.status, CARRY);
+    }
+
+    #[test]
+    fn test_and_from_memory() {
+        let mut cpu = CPU::new();
+        cpu.mem_write(0x10, 0x55);
+
+        cpu.load_and_run(vec![0xa5, 0x10, 0x29, 0xaa, 0x00]);
+
+        assert_eq!(cpu.accumulator, 0x00);
+    }
+
+    #[test]
+    fn test_asl() {
+        let mut cpu = CPU::new();
+        cpu.mem_write(0x10, 0x55);
+
+        cpu.load_and_run(vec![0xa5, 0x10, 0x0a, 0x00]);
+
+        assert_eq!(cpu.accumulator, 0xAA);
     }
 }
