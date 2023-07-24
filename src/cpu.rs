@@ -15,6 +15,9 @@ pub enum AddressingMode {
     NoneAddressing,
 }
 
+const STACK: u16 = 0x0100;
+const STACK_RESET: u8 = 0xfd;
+
 /// # Status Register (P) http://wiki.nesdev.com/w/index.php/Status_flags
 ///
 ///  7 6 5 4 3 2 1 0
@@ -34,13 +37,14 @@ const DECIMAL_MODE: u8 = 0b00001000;
 const BREAK: u8 = 0b00010000;
 const BREAK2: u8 = 0b00100000;
 const OVERFLOW: u8 = 0b01000000;
-const NEGATIV: u8 = 0b10000000;
+const NEGATIVE: u8 = 0b10000000;
 
 pub struct CPU {
     pub accumulator: u8,
     pub register_x: u8,
     pub register_y: u8,
     pub status: u8,
+    pub stack_pointer: u8,
     pub program_counter: u16,
     memory: [u8; 0xFFFF],
 }
@@ -52,6 +56,7 @@ impl CPU {
             register_x: 0,
             register_y: 0,
             status: 0,
+            stack_pointer: STACK_RESET,
             program_counter: 0,
             memory: [0; 0xFFFF],
         }
@@ -79,8 +84,9 @@ impl CPU {
     pub fn reset(&mut self) {
         self.accumulator = 0;
         self.register_x = 0;
-        self.status = 0;
-
+        self.status = INTERRUPT_DISABLE;
+        //        self.status = CpuFlags::from_bits_truncate(0b100100); this is what the tutorial has. Interrupt disable makes sense but not Negative
+        self.stack_pointer = STACK_RESET;
         self.program_counter = self.mem_read_u16(0xFFFC)
     }
 
@@ -101,9 +107,9 @@ impl CPU {
 
             let program_counter_state = self.program_counter;
 
-            let opcode = OPCODES_MAP
+            let opcode = *OPCODES_MAP
                 .get(&code)
-                .expect(&format!("OpCode {:x} is not recognized", code));
+                .unwrap_or_else(|| panic!("OpCode {:x} is not recognized", code));
 
             match code {
                 //BRK
@@ -191,41 +197,42 @@ impl CPU {
     fn adc(&mut self, mode: &AddressingMode) {
         let accum = self.accumulator as u16;
         let mem_val = self.mem_read(self.get_operand_address(mode)) as u16;
-        let sum = (accum + mem_val + (self.status & CARRY) as u16) as u16;
+        let sum = accum + mem_val + (self.status & CARRY) as u16;
 
         if sum > 0xFF {
-            self.status = self.status | 0b0000_0001;
+            self.status |= 0b0000_0001;
         }
 
         let result = sum as u8;
 
         if (mem_val as u8 ^ result) & (self.accumulator ^ result) & 0x80 != 0 {
-            self.status = self.status | OVERFLOW;
+            self.status |= OVERFLOW;
         } else {
-            self.status = self.status & !OVERFLOW;
+            self.status &= !OVERFLOW;
         }
 
         self.set_accumulator(result);
-        //I feel like I need to do this
-        //self.update_zero_and_negative_flag(self.accumulator);
     }
 
     fn and(&mut self, mode: &AddressingMode) {
-        self.set_accumulator(self.accumulator & self.mem_read(self.get_operand_address(&mode)));
+        self.set_accumulator(self.accumulator & self.mem_read(self.get_operand_address(mode)));
     }
 
     fn asl_accumulator(&mut self) {
         if self.accumulator & 0x80 != 0 {
-            self.status = self.status | CARRY
+            self.status |= CARRY
         } else {
-            self.status = self.status & !CARRY
+            self.status &= !CARRY
         }
 
         self.set_accumulator(self.accumulator << 1);
     }
 
     fn asl(&mut self, mode: &AddressingMode) {
-        let mem_val = self.mem_read(self.get_operand_address(&mode));
+        let addr = self.get_operand_address(mode);
+        let mem_val = self.mem_read(addr);
+        self.status |= (CARRY) * (mem_val & 0x80);
+        self.mem_write(addr, mem_val << 1);
     }
 
     fn lda(&mut self, mode: &AddressingMode) {
@@ -248,15 +255,15 @@ impl CPU {
 
     fn update_zero_and_negative_flags(&mut self, result: u8) {
         if result == 0 {
-            self.status = self.status | 0b0000_0010; //the negative flag is the 2nd bit which is set if the param is 0
+            self.status |= 0b0000_0010; //the negative flag is the 2nd bit which is set if the param is 0
         } else {
-            self.status = self.status & 0b1111_1101;
+            self.status &= 0b1111_1101;
         }
 
         if result & 0b1000_0000 != 0 {
-            self.status = self.status | 0b1000_0000;
+            self.status |= 0b1000_0000;
         } else {
-            self.status = self.status & 0b0111_1111;
+            self.status &= 0b0111_1111;
         }
     }
 }
