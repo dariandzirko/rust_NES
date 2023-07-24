@@ -24,9 +24,8 @@ impl OpCode {
 lazy_static::lazy_static! {
 
     pub static ref CPU_OP_CODES: Vec<OpCode> = vec![
-        OpCode::new(0x00, "BRK", 1, 7, AddressingMode::NoneAddressing),
-        OpCode::new(0xaa, "TAX", 1, 2, AddressingMode::NoneAddressing),
-        OpCode::new(0xe8, "INX", 1, 2, AddressingMode::NoneAddressing),
+        OpCode::new(0xaa, "TAX", 1, 2, AddressingMode::NoneAddressing), //TAX
+        OpCode::new(0xe8, "INX", 1, 2, AddressingMode::NoneAddressing), //INX
         //ADC
         OpCode::new(0x69, "ADC", 2, 2, AddressingMode::Immediate),
         OpCode::new(0x65, "ADC", 2, 3, AddressingMode::ZeroPage),
@@ -40,8 +39,8 @@ lazy_static::lazy_static! {
         OpCode::new(0x29, "AND", 2, 2, AddressingMode::Immediate),
         OpCode::new(0x25, "AND", 2, 3, AddressingMode::ZeroPage),
         OpCode::new(0x35, "AND", 2, 4, AddressingMode::ZeroPage_X),
-        OpCode::new(0x2D, "AND", 3, 4, AddressingMode::Absolute),
-        OpCode::new(0x3D, "AND", 3, 4, AddressingMode::Absolute_X),
+        OpCode::new(0x2d, "AND", 3, 4, AddressingMode::Absolute),
+        OpCode::new(0x3d, "AND", 3, 4, AddressingMode::Absolute_X),
         OpCode::new(0x39, "AND", 3, 4, AddressingMode::Absolute_Y),
         OpCode::new(0x21, "AND", 2, 6, AddressingMode::Indirect_X),
         OpCode::new(0x31, "AND", 2, 5, AddressingMode::Indirect_Y),
@@ -51,6 +50,45 @@ lazy_static::lazy_static! {
         OpCode::new(0x16, "ASL", 2, 6, AddressingMode::ZeroPage_X),
         OpCode::new(0x0e, "ASL", 3, 6, AddressingMode::Absolute),
         OpCode::new(0x1e, "ASL", 3, 7, AddressingMode::Absolute_X),
+        //BCC
+        OpCode::new(0x90, "BCC", 2, 2, AddressingMode::NoneAddressing),
+        //BCS
+        OpCode::new(0xb0, "BCS", 2, 2, AddressingMode::NoneAddressing),
+        //BEQ
+        OpCode::new(0xf0, "BEQ", 2, 2, AddressingMode::NoneAddressing),
+        //BIT
+        OpCode::new(0x24, "BIT", 2, 3, AddressingMode::ZeroPage),
+        OpCode::new(0x2c, "BIT", 3, 4, AddressingMode::Absolute),
+        //BMI
+        OpCode::new(0x30, "BMI", 2, 2, AddressingMode::NoneAddressing),
+        //BNE
+        OpCode::new(0xd0, "BNE", 2, 2, AddressingMode::NoneAddressing),
+        //BPL
+        OpCode::new(0x10, "BPL", 2, 2, AddressingMode::NoneAddressing),
+        //BRK
+        OpCode::new(0x00, "BRK", 1, 7, AddressingMode::NoneAddressing),
+        //BVC
+        OpCode::new(0x50, "BVC", 2, 2, AddressingMode::NoneAddressing),
+        //BVS
+        OpCode::new(0x70, "BVS", 2, 2, AddressingMode::NoneAddressing),
+        //CLC
+        OpCode::new(0x18, "CLC", 1, 2, AddressingMode::NoneAddressing),
+        //CLD
+        OpCode::new(0xd8, "CLD", 1, 2, AddressingMode::NoneAddressing),
+        //CLI
+        OpCode::new(0x58, "CLI", 1, 2, AddressingMode::NoneAddressing),
+        //CLV
+        OpCode::new(0xb8, "BRK", 1, 2, AddressingMode::NoneAddressing),
+        //CMP
+        OpCode::new(0xc9, "CMP", 2, 2, AddressingMode::Immediate),
+        OpCode::new(0xc5, "CMP", 2, 3, AddressingMode::ZeroPage),
+        OpCode::new(0xd5, "CMP", 2, 4, AddressingMode::ZeroPage_X),
+        OpCode::new(0xcd, "CMP", 3, 4, AddressingMode::Absolute),
+        OpCode::new(0xdd, "CMP", 3, 4, AddressingMode::Absolute_X),
+        OpCode::new(0xd9, "CMP", 3, 4, AddressingMode::Absolute_Y),
+        OpCode::new(0xc1, "CMP", 2, 6, AddressingMode::Indirect_X),
+        OpCode::new(0xd1, "CMP", 2, 5, AddressingMode::Indirect_Y),
+
         //LDA
         OpCode::new(0xa9, "LDA", 2, 2, AddressingMode::Immediate),
         OpCode::new(0xa5, "LDA", 2, 3, AddressingMode::ZeroPage),

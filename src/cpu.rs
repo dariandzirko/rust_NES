@@ -130,6 +130,14 @@ impl CPU {
                 0x0a => self.asl_accumulator(),
                 //ASL
                 0x06 | 0x16 | 0x0e | 0x1e => self.asl(&opcode.mode),
+                //BCC
+                0x90 => self.branch(self.status & CARRY == 0),
+                //BCS
+                0xb0 => self.branch(self.status & CARRY != 0),
+                //BEQ
+                0xf0 => self.branch(self.status & ZERO != 0),
+                //BIT
+                0x24 | 0x2c => self.bit(&opcode.mode),
                 //LDA
                 0xa9 | 0xa5 | 0xb5 | 0xad | 0xbd | 0xb9 | 0xa1 | 0xb1 => self.lda(&opcode.mode),
                 //STA
@@ -230,10 +238,27 @@ impl CPU {
 
     fn asl(&mut self, mode: &AddressingMode) {
         let addr = self.get_operand_address(mode);
-        let mem_val = self.mem_read(addr);
-        self.status |= (CARRY) * (mem_val & 0x80);
-        self.mem_write(addr, mem_val << 1);
+        let mut mem_val = self.mem_read(addr);
+
+        if mem_val & 0x80 != 0 {
+            self.status |= CARRY
+        } else {
+            self.status &= !CARRY
+        }
+
+        mem_val <<= 1;
+        self.mem_write(addr, mem_val);
+        self.update_zero_and_negative_flags(mem_val);
     }
+
+    fn branch(&mut self, condition: bool) {
+        if condition {
+            let jump_addr = self.mem_read(self.program_counter) as u16;
+            self.program_counter = self.program_counter.wrapping_add(jump_addr + 1);
+        }
+    }
+
+    fn bit(&mut self, mode: &AddressingMode) {}
 
     fn lda(&mut self, mode: &AddressingMode) {
         self.set_accumulator(self.mem_read(self.get_operand_address(mode)));
@@ -255,15 +280,15 @@ impl CPU {
 
     fn update_zero_and_negative_flags(&mut self, result: u8) {
         if result == 0 {
-            self.status |= 0b0000_0010; //the negative flag is the 2nd bit which is set if the param is 0
+            self.status |= NEGATIVE; //the negative flag is the 2nd bit which is set if the param is 0
         } else {
-            self.status &= 0b1111_1101;
+            self.status &= !NEGATIVE;
         }
 
-        if result & 0b1000_0000 != 0 {
-            self.status |= 0b1000_0000;
+        if result & 0x80 != 0 {
+            self.status |= CARRY;
         } else {
-            self.status &= 0b0111_1111;
+            self.status &= !CARRY;
         }
     }
 }
@@ -330,7 +355,7 @@ mod test {
         cpu.load_and_run(vec![0xa5, 0x10, 0x69, 0xff, 0x00]);
 
         assert_eq!(cpu.accumulator, 0x54);
-        assert_eq!(cpu.status, CARRY);
+        assert!(cpu.status & CARRY != 0);
     }
 
     #[test]
@@ -351,5 +376,11 @@ mod test {
         cpu.load_and_run(vec![0xa5, 0x10, 0x0a, 0x00]);
 
         assert_eq!(cpu.accumulator, 0xAA);
+
+        cpu.mem_write(0x10, 0xA8);
+
+        cpu.load_and_run(vec![0x06, 0x10, 0xa5, 0x10, 0x00]);
+        assert_eq!(cpu.accumulator, 0x50);
+        assert!(cpu.status & CARRY != 0);
     }
 }
