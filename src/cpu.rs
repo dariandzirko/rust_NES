@@ -100,6 +100,16 @@ impl CPU {
         self.update_zero_and_negative_flags(self.accumulator);
     }
 
+    fn set_register_x(&mut self, value: u8) {
+        self.register_x = value;
+        self.update_zero_and_negative_flags(self.register_x);
+    }
+
+    fn set_register_y(&mut self, value: u8) {
+        self.register_y = value;
+        self.update_zero_and_negative_flags(self.register_y);
+    }
+
     pub fn run(&mut self) {
         loop {
             let code = self.mem_read(self.program_counter);
@@ -114,10 +124,6 @@ impl CPU {
             match code {
                 //BRK
                 0x00 => return,
-                //TAX
-                0xaa => {
-                    self.tax();
-                }
                 //ADC
                 0x69 | 0x65 | 0x75 | 0x6d | 0x7d | 0x79 | 0x61 | 0x71 => self.adc(&opcode.mode),
                 //AND
@@ -174,10 +180,70 @@ impl CPU {
                 0xe8 => self.inx(),
                 //INY
                 0xc8 => self.iny(),
+                //JMP Absolute
+                0x4c => {
+                    self.program_counter = self.mem_read_u16(self.program_counter);
+                }
+                //JMP Indirect
+                0x6c => {
+                    let addr = self.mem_read_u16(self.program_counter);
+
+                    let indirect = if addr & 0xff == 0xff {
+                        let low = self.mem_read(addr) as u16;
+                        let high = self.mem_read(addr & 0xFF00) as u16;
+                        self.mem_read_u16(high << 8 | low)
+                    } else {
+                        self.mem_read_u16(addr)
+                    };
+
+                    self.program_counter = indirect;
+                }
+                //JSR
+                0x20 => {
+                    self.stack_push_u16(self.program_counter + 1); //return pooint should be the next instruction
+                    self.program_counter = self.mem_read_u16(self.program_counter);
+                }
                 //LDA
                 0xa9 | 0xa5 | 0xb5 | 0xad | 0xbd | 0xb9 | 0xa1 | 0xb1 => self.lda(&opcode.mode),
+                //LDX
+                0xa2 | 0xa6 | 0xb6 | 0xae | 0xbe => self.ldx(&opcode.mode),
+                //LDY
+                0xa0 | 0xa4 | 0xb4 | 0xac | 0xbc => self.ldy(&opcode.mode),
+                //LSR Accumulator
+                0x4a => self.lsr_accumulator(),
+                //LSR
+                0x46 | 0x56 | 0x4e | 0x5e => self.lsr(&opcode.mode),
+                //NOP
+                0xea => self.nop(),
+                //ORA
+                0x09 | 0x05 | 0x15 | 0x0d | 0x1d | 0x19 | 0x01 | 0x11 => self.ora(&opcode.mode),
+                //PHA
+                0x48 => self.pha(),
+                //PHP
+                0x08 => self.php(),
+                //PLA
+                0x68 => self.pla(),
+                //PLP
+                0x28 => self.plp(),
+                //ROL
+                //ROR
+                //RTI
+                //RTS
+                //SBC
+                //SEC
+                //SED
+                //SEI
                 //STA
                 0x85 | 0x95 | 0x8d | 0x9d | 0x99 | 0x81 | 0x91 => self.sta(&opcode.mode),
+                //STX
+                //STY
+                //TAX
+                0xaa => self.tax(),
+                //TAY
+                //TSX
+                //TXA
+                //TXS
+                //TYA
                 //Not implemented case
                 _ => todo!("This is gna break if we make it here"),
             }
@@ -357,6 +423,63 @@ impl CPU {
         self.set_accumulator(self.mem_read(self.get_operand_address(mode)));
     }
 
+    fn ldx(&mut self, mode: &AddressingMode) {
+        self.set_register_x(self.mem_read(self.get_operand_address(mode)));
+    }
+
+    fn ldy(&mut self, mode: &AddressingMode) {
+        self.set_register_y(self.mem_read(self.get_operand_address(mode)));
+    }
+
+    fn lsr_accumulator(&mut self) {
+        if self.accumulator & 0x01 != 0 {
+            self.set_status_flag(CARRY);
+        } else {
+            self.reset_status_flag(CARRY);
+        }
+        self.set_accumulator(self.accumulator >> 1);
+    }
+
+    fn lsr(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_address(mode);
+        let mut mem_val = self.mem_read(addr);
+
+        if mem_val & 0x01 != 0 {
+            self.set_status_flag(CARRY);
+        } else {
+            self.reset_status_flag(CARRY);
+        }
+
+        mem_val >>= 1;
+        self.mem_write(addr, mem_val);
+        self.update_zero_and_negative_flags(mem_val);
+    }
+
+    fn nop(&mut self) {
+        //Does nothing
+    }
+
+    fn ora(&mut self, mode: &AddressingMode) {
+        self.set_accumulator(self.mem_read(self.get_operand_address(mode)) | self.accumulator);
+    }
+
+    fn pha(&mut self) {
+        self.stack_push(self.accumulator);
+    }
+
+    fn php(&mut self) {
+        self.stack_push(self.status);
+    }
+
+    fn pla(&mut self) {
+        let value = self.stack_pop();
+        self.set_accumulator(value);
+    }
+
+    fn plp(&mut self) {
+        self.status = self.stack_pop();
+    }
+
     fn tax(&mut self) {
         self.register_x = self.accumulator;
         self.update_zero_and_negative_flags(self.register_x);
@@ -385,6 +508,29 @@ impl CPU {
     }
     fn reset_status_flag(&mut self, flag: u8) {
         self.status &= !flag
+    }
+
+    fn stack_push(&mut self, value: u8) {
+        self.mem_write(STACK + self.stack_pointer as u16, value);
+        self.stack_pointer = self.stack_pointer.wrapping_sub(1);
+    }
+
+    fn stack_push_u16(&mut self, value: u16) {
+        let low = value & 0xff as u16;
+        let high = value << 8;
+        self.stack_push(high as u8);
+        self.stack_push(low as u8);
+    }
+
+    fn stack_pop(&mut self) -> u8 {
+        self.stack_pointer = self.stack_pointer.wrapping_add(1);
+        self.mem_read(STACK + self.stack_pointer as u16)
+    }
+
+    fn stack_pop_u16(&mut self) -> u16 {
+        let low = self.stack_pop() as u16;
+        let high = self.stack_pop() as u16;
+        (high << 8) | low
     }
 }
 
