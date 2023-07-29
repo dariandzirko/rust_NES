@@ -62,11 +62,11 @@ impl CPU {
         }
     }
 
-    fn mem_read(&self, addr: u16) -> u8 {
+    pub fn mem_read(&self, addr: u16) -> u8 {
         self.memory[addr as usize]
     }
 
-    fn mem_write(&mut self, addr: u16, data: u8) {
+    pub fn mem_write(&mut self, addr: u16, data: u8) {
         self.memory[addr as usize] = data;
     }
 
@@ -84,15 +84,15 @@ impl CPU {
     pub fn reset(&mut self) {
         self.accumulator = 0;
         self.register_x = 0;
-        self.status = INTERRUPT_DISABLE;
+        self.status = INTERRUPT_DISABLE | NEGATIVE;
         //        self.status = CpuFlags::from_bits_truncate(0b100100); this is what the tutorial has. Interrupt disable makes sense but not Negative
         self.stack_pointer = STACK_RESET;
         self.program_counter = self.mem_read_u16(0xFFFC)
     }
 
     pub fn load(&mut self, program: Vec<u8>) {
-        self.memory[0x8000..(0x8000 + program.len())].copy_from_slice(&program[..]);
-        self.mem_write_u16(0xFFFC, 0x8000);
+        self.memory[0x0600..(0x0600 + program.len())].copy_from_slice(&program[..]);
+        self.mem_write_u16(0xFFFC, 0x0600);
     }
 
     fn set_accumulator(&mut self, value: u8) {
@@ -111,13 +111,23 @@ impl CPU {
     }
 
     pub fn run(&mut self) {
+        self.run_with_callback(|_| {});
+    }
+
+    pub fn run_with_callback<F>(&mut self, mut callback: F)
+    where
+        F: FnMut(&mut CPU),
+    {
+        let opcodes = &OPCODES_MAP;
         loop {
+            callback(self);
+
             let code = self.mem_read(self.program_counter);
             self.program_counter += 1;
 
             let program_counter_state = self.program_counter;
 
-            let opcode = *OPCODES_MAP
+            let opcode = *opcodes
                 .get(&code)
                 .unwrap_or_else(|| panic!("OpCode {:x} is not recognized", code));
 
@@ -225,25 +235,44 @@ impl CPU {
                 0x68 => self.pla(),
                 //PLP
                 0x28 => self.plp(),
+                //ROL Accumulator
+                0x2a => self.rol_accumulator(),
                 //ROL
+                0x26 | 0x36 | 0x2e | 0x3e => self.rol(&opcode.mode),
+                //ROR Accumulator
+                0x6a => self.ror_accumulator(),
                 //ROR
+                0x66 | 0x76 | 0x6e | 0x7e => self.ror(&opcode.mode),
                 //RTI
+                0x40 => self.rti(),
                 //RTS
+                0x60 => self.rts(),
                 //SBC
+                0xe9 | 0xe5 | 0xf5 | 0xed | 0xfd | 0xf9 | 0xe1 | 0xf1 => self.sbc(&opcode.mode),
                 //SEC
+                0x38 => self.set_status_flag(CARRY),
                 //SED
+                0xf8 => self.set_status_flag(DECIMAL_MODE),
                 //SEI
+                0x78 => self.set_status_flag(INTERRUPT_DISABLE),
                 //STA
                 0x85 | 0x95 | 0x8d | 0x9d | 0x99 | 0x81 | 0x91 => self.sta(&opcode.mode),
                 //STX
+                0x86 | 0x96 | 0x8e => self.stx(&opcode.mode),
                 //STY
+                0x84 | 0x94 | 0x8c => self.sty(&opcode.mode),
                 //TAX
                 0xaa => self.tax(),
                 //TAY
+                0xa8 => self.tay(),
                 //TSX
+                0xba => self.tsx(),
                 //TXA
+                0x8a => self.txa(),
                 //TXS
+                0x9a => self.txs(),
                 //TYA
+                0x98 => self.tya(),
                 //Not implemented case
                 _ => todo!("This is gna break if we make it here"),
             }
@@ -480,13 +509,129 @@ impl CPU {
         self.status = self.stack_pop();
     }
 
+    fn rol_accumulator(&mut self) {
+        let mut value = self.accumulator as u16;
+        value <<= 1;
+        value |= (self.status & CARRY) as u16;
+        if value & 0x100 != 0 {
+            self.set_status_flag(CARRY)
+        } else {
+            self.reset_status_flag(CARRY)
+        }
+        self.set_accumulator((value & 0xFF) as u8);
+    }
+
+    fn rol(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_address(mode);
+        let mut value = self.mem_read(addr) as u16;
+        value <<= 1;
+        value |= (self.status & CARRY) as u16;
+        if value & 0x100 != 0 {
+            self.set_status_flag(CARRY)
+        } else {
+            self.reset_status_flag(CARRY)
+        }
+        self.mem_write(addr, (value & 0xFF) as u8);
+    }
+
+    fn ror_accumulator(&mut self) {
+        let mut value = self.accumulator as u16;
+
+        if self.status & CARRY != 0 {
+            value |= 0x80 //set 7th bit high
+        }
+        if value & 0x01 != 0 {
+            self.set_status_flag(CARRY)
+        } else {
+            self.reset_status_flag(CARRY)
+        }
+        value >>= 1;
+        self.set_accumulator((value & 0xFF) as u8);
+    }
+
+    fn ror(&mut self, mode: &AddressingMode) {
+        let addr = self.get_operand_address(mode);
+        let mut value = self.mem_read(addr) as u16;
+
+        if self.status & CARRY != 0 {
+            value |= 0x80 //set 7th bit high
+        }
+        if value & 0x01 != 0 {
+            self.set_status_flag(CARRY)
+        } else {
+            self.reset_status_flag(CARRY)
+        }
+        value >>= 1;
+        self.mem_write(addr, (value & 0xFF) as u8);
+    }
+
+    fn rti(&mut self) {
+        self.status = self.stack_pop();
+        self.program_counter = self.stack_pop_u16();
+    }
+
+    fn rts(&mut self) {
+        self.program_counter = self.stack_pop_u16().wrapping_sub(1);
+    }
+
+    fn sbc(&mut self, mode: &AddressingMode) {
+        let accum = self.accumulator as u16;
+        let mem_val = (!self.mem_read(self.get_operand_address(mode)) as u16).wrapping_add(1); //Invert value at addr
+        let sum = accum + mem_val + (self.status & CARRY) as u16;
+
+        if sum > 0xFF {
+            self.set_status_flag(CARRY);
+        }
+
+        let result = sum as u8;
+
+        if (mem_val as u8 ^ result) & (self.accumulator ^ result) & 0x80 != 0 {
+            self.set_status_flag(OVERFLOW);
+        } else {
+            self.reset_status_flag(OVERFLOW);
+        }
+
+        self.set_accumulator(result);
+    }
+
+    fn sta(&mut self, mode: &AddressingMode) {
+        self.mem_write(self.get_operand_address(mode), self.accumulator);
+    }
+
+    fn stx(&mut self, mode: &AddressingMode) {
+        self.mem_write(self.get_operand_address(mode), self.register_x);
+    }
+
+    fn sty(&mut self, mode: &AddressingMode) {
+        self.mem_write(self.get_operand_address(mode), self.register_y);
+    }
+
     fn tax(&mut self) {
         self.register_x = self.accumulator;
         self.update_zero_and_negative_flags(self.register_x);
     }
 
-    fn sta(&mut self, mode: &AddressingMode) {
-        self.mem_write(self.get_operand_address(mode), self.accumulator);
+    fn tay(&mut self) {
+        self.register_y = self.accumulator;
+        self.update_zero_and_negative_flags(self.register_y);
+    }
+
+    fn tsx(&mut self) {
+        self.register_x = self.stack_pointer;
+        self.update_zero_and_negative_flags(self.register_x);
+    }
+
+    fn txa(&mut self) {
+        self.set_accumulator(self.register_x);
+    }
+
+    fn txs(&mut self) {
+        self.stack_pointer = self.register_x;
+        self.update_zero_and_negative_flags(self.stack_pointer);
+    }
+
+    fn tya(&mut self) {
+        self.set_accumulator(self.register_y);
     }
 
     fn update_zero_and_negative_flags(&mut self, result: u8) {
