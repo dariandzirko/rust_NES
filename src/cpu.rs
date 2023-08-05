@@ -1,6 +1,6 @@
 use crate::opcode::OPCODES_MAP;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub enum AddressingMode {
     Immediate,
@@ -30,14 +30,14 @@ const STACK_RESET: u8 = 0xfd;
 ///  | +--------------- Overflow Flag
 ///  +----------------- Negative Flag
 ///
-const CARRY: u8 = 0b00000001;
-const ZERO: u8 = 0b00000010;
-const INTERRUPT_DISABLE: u8 = 0b00000100;
-const DECIMAL_MODE: u8 = 0b00001000;
-const BREAK: u8 = 0b00010000;
-const BREAK2: u8 = 0b00100000;
-const OVERFLOW: u8 = 0b01000000;
-const NEGATIVE: u8 = 0b10000000;
+pub const CARRY: u8 = 0b00000001;
+pub const ZERO: u8 = 0b00000010;
+pub const INTERRUPT_DISABLE: u8 = 0b00000100;
+pub const DECIMAL_MODE: u8 = 0b00001000;
+pub const BREAK: u8 = 0b00010000;
+pub const BREAK2: u8 = 0b00100000;
+pub const OVERFLOW: u8 = 0b01000000;
+pub const NEGATIVE: u8 = 0b10000000;
 
 pub struct CPU {
     pub accumulator: u8,
@@ -62,6 +62,11 @@ impl CPU {
         }
     }
 
+    pub fn print_state(&self) {
+        println!("accumulator: {:x} | register_x: {:x} | register_y: {:x} | status: {:x} | stack_pointer: {:x} | program_counter: {:x} ",
+        self.accumulator, self.register_x, self.register_y, self.status, self.stack_pointer, self.program_counter);
+    }
+
     pub fn mem_read(&self, addr: u16) -> u8 {
         self.memory[addr as usize]
     }
@@ -84,7 +89,7 @@ impl CPU {
     pub fn reset(&mut self) {
         self.accumulator = 0;
         self.register_x = 0;
-        self.status = INTERRUPT_DISABLE | NEGATIVE;
+        self.status = INTERRUPT_DISABLE | BREAK2;
         //        self.status = CpuFlags::from_bits_truncate(0b100100); this is what the tutorial has. Interrupt disable makes sense but not Negative
         self.stack_pointer = STACK_RESET;
         self.program_counter = self.mem_read_u16(0xFFFC)
@@ -130,6 +135,13 @@ impl CPU {
             let opcode = *opcodes
                 .get(&code)
                 .unwrap_or_else(|| panic!("OpCode {:x} is not recognized", code));
+
+            self.print_state();
+
+            println!(
+                "opcode mnemonic: {} | opcode value: {:x}",
+                opcode.mnemonic, opcode.code
+            );
 
             match code {
                 //BRK
@@ -210,7 +222,7 @@ impl CPU {
                 }
                 //JSR
                 0x20 => {
-                    self.stack_push_u16(self.program_counter + 1); //return pooint should be the next instruction
+                    self.stack_push_u16(self.program_counter + 2 - 1); //return point should be the next instruction
                     self.program_counter = self.mem_read_u16(self.program_counter);
                 }
                 //LDA
@@ -399,14 +411,15 @@ impl CPU {
         }
     }
 
+    //Value is the input, like accumulator
     fn compare(&mut self, value: u8, mode: &AddressingMode) {
-        let result = value - self.mem_read(self.get_operand_address(mode));
-        if result & 0x01 != 0 {
+        let value2 = self.mem_read(self.get_operand_address(mode));
+        if value >= value2 {
             self.set_status_flag(CARRY);
         } else {
             self.reset_status_flag(CARRY);
         }
-        self.update_zero_and_negative_flags(result);
+        self.update_zero_and_negative_flags(value.wrapping_sub(value2));
     }
 
     fn dec(&mut self, mode: &AddressingMode) {
@@ -571,7 +584,7 @@ impl CPU {
     }
 
     fn rts(&mut self) {
-        self.program_counter = self.stack_pop_u16().wrapping_sub(1);
+        self.program_counter = self.stack_pop_u16().wrapping_add(1);
     }
 
     fn sbc(&mut self, mode: &AddressingMode) {
@@ -636,7 +649,7 @@ impl CPU {
 
     fn update_zero_and_negative_flags(&mut self, result: u8) {
         if result == 0 {
-            self.status |= ZERO; //the negative flag is the 2nd bit which is set if the param is 0
+            self.status |= ZERO;
         } else {
             self.status &= !ZERO;
         }
@@ -656,117 +669,45 @@ impl CPU {
     }
 
     fn stack_push(&mut self, value: u8) {
+        // println!(
+        //     "stack_push | value: {:x} | memory_at_sp: {:x}",
+        //     value,
+        //     self.mem_read(STACK + self.stack_pointer as u16)
+        // );
+
         self.mem_write(STACK + self.stack_pointer as u16, value);
+        // println!(
+        //     "after memory_at_sp: {:x}",
+        //     self.mem_read(STACK + self.stack_pointer as u16)
+        // );
+
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
     }
 
     fn stack_push_u16(&mut self, value: u16) {
         let low = value & 0xff as u16;
-        let high = value << 8;
+        let high = value >> 8;
         self.stack_push(high as u8);
         self.stack_push(low as u8);
     }
 
     fn stack_pop(&mut self) -> u8 {
+        // println!(
+        //     "stack_pop memory_at_sp: {:x}",
+        //     self.mem_read(STACK + self.stack_pointer as u16)
+        // );
         self.stack_pointer = self.stack_pointer.wrapping_add(1);
+        // println!(
+        //     "stack_pop memory_at_sp: {:x}",
+        //     self.mem_read(STACK + self.stack_pointer as u16)
+        // );
         self.mem_read(STACK + self.stack_pointer as u16)
     }
 
     fn stack_pop_u16(&mut self) -> u16 {
         let low = self.stack_pop() as u16;
         let high = self.stack_pop() as u16;
+        // println!("low: {:x} | high: {:x}", low, high);
         (high << 8) | low
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::cpu::{CARRY, CPU, OVERFLOW};
-
-    #[test]
-    fn test_0xa9_immediate_load_order() {
-        let mut cpu = CPU::new();
-        cpu.load_and_run(vec![0xa9, 0x05, 0x00]);
-        assert_eq!(cpu.accumulator, 0x05);
-        assert!(cpu.status & 0b0000_0010 == 0b00);
-        assert!(cpu.status & 0b1000_0000 == 0);
-    }
-
-    #[test]
-    fn test_0xa9_lda_zero_flag() {
-        let mut cpu = CPU::new();
-        cpu.load_and_run(vec![0xa9, 0x00, 0x00]);
-        assert!(cpu.status & 0b0000_0010 == 0b10);
-    }
-
-    #[test]
-    fn test_0xaa_tax_move_a_to_x() {
-        let mut cpu = CPU::new();
-        cpu.load_and_run(vec![0xa9, 0xa0, 0xaa, 0x00]);
-
-        assert_eq!(cpu.register_x, 0xa0);
-    }
-
-    #[test]
-    fn test_5_ops_working_together() {
-        let mut cpu = CPU::new();
-        cpu.load_and_run(vec![0xa9, 0xc0, 0xaa, 0xe8, 00]);
-
-        assert_eq!(cpu.register_x, 0xc1);
-    }
-
-    #[test]
-    fn test_inx_overflow() {
-        let mut cpu = CPU::new();
-        cpu.load_and_run(vec![0xa9, 0xff, 0xaa, 0xe8, 0xe8, 0x00]);
-
-        assert_eq!(cpu.register_x, 1);
-    }
-
-    #[test]
-    fn test_lda_from_memory() {
-        let mut cpu = CPU::new();
-        cpu.mem_write(0x10, 0x55);
-
-        cpu.load_and_run(vec![0xa5, 0x10, 0x00]);
-
-        assert_eq!(cpu.accumulator, 0x55);
-    }
-
-    #[test]
-    fn test_adc_from_memory() {
-        let mut cpu = CPU::new();
-        cpu.mem_write(0x10, 0x55);
-
-        cpu.load_and_run(vec![0xa5, 0x10, 0x69, 0xff, 0x00]);
-
-        assert_eq!(cpu.accumulator, 0x54);
-        assert!(cpu.status & CARRY != 0);
-    }
-
-    #[test]
-    fn test_and_from_memory() {
-        let mut cpu = CPU::new();
-        cpu.mem_write(0x10, 0x55);
-
-        cpu.load_and_run(vec![0xa5, 0x10, 0x29, 0xaa, 0x00]);
-
-        assert_eq!(cpu.accumulator, 0x00);
-    }
-
-    #[test]
-    fn test_asl() {
-        let mut cpu = CPU::new();
-        cpu.mem_write(0x10, 0x55);
-
-        cpu.load_and_run(vec![0xa5, 0x10, 0x0a, 0x00]);
-
-        assert_eq!(cpu.accumulator, 0xAA);
-
-        cpu.mem_write(0x10, 0xA8);
-
-        cpu.load_and_run(vec![0x06, 0x10, 0xa5, 0x10, 0x00]);
-        assert_eq!(cpu.accumulator, 0x50);
-        assert!(cpu.status & CARRY != 0);
     }
 }
