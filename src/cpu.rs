@@ -63,7 +63,7 @@ impl CPU {
     }
 
     pub fn print_state(&self) {
-        println!("accumulator: {:x} | register_x: {:x} | register_y: {:x} | status: {:x} | stack_pointer: {:x} | program_counter: {:x} ",
+        println!("accumulator: {:x} | register_x: {:x} | register_y: {:x} | status: {:x} | stack_pointer: {:x} | program_counter: {:x}",
         self.accumulator, self.register_x, self.register_y, self.status, self.stack_pointer, self.program_counter);
     }
 
@@ -396,10 +396,34 @@ impl CPU {
 
     fn branch(&mut self, condition: bool) {
         if condition {
-            let jump_addr = self.mem_read(self.program_counter) as u16;
-            self.program_counter = self.program_counter.wrapping_add(jump_addr + 1);
+            let jump = self.mem_read(self.program_counter) as i8;
+
+            println!(
+                "jump: {:x}| program counter: {:x} | program_counter add: {:x} | jump_addr: {:x}",
+                jump,
+                self.program_counter,
+                self.program_counter.wrapping_add(jump as u16),
+                self.program_counter.wrapping_add(jump as u16 + 1)
+            );
+            self.program_counter = self.program_counter.wrapping_add(jump as u16 + 1);
         }
     }
+
+    // let jump: i8 = self.mem_read(self.program_counter) as i8;
+    // let jump_addr = self
+    //     .program_counter
+    //     .wrapping_add(1)
+    //     .wrapping_add(jump as u16);
+
+    // println!(
+    //     "jump: {:x}| program counter: {:x} | program_counter add: {:x} | jump_addr: {:x}",
+    //     jump,
+    //     self.program_counter,
+    //     self.program_counter.wrapping_add(jump as u16),
+    //     self.program_counter.wrapping_add(jump as u16 + 1)
+    // );
+
+    // self.program_counter = jump_addr;
 
     fn bit(&mut self, mode: &AddressingMode) {
         let result = self.accumulator & self.mem_read(self.get_operand_address(mode));
@@ -462,7 +486,10 @@ impl CPU {
     }
 
     fn lda(&mut self, mode: &AddressingMode) {
-        self.set_accumulator(self.mem_read(self.get_operand_address(mode)));
+        let addr = self.get_operand_address(mode);
+        let value = self.mem_read(addr);
+
+        self.set_accumulator(value);
     }
 
     fn ldx(&mut self, mode: &AddressingMode) {
@@ -608,7 +635,9 @@ impl CPU {
     }
 
     fn sta(&mut self, mode: &AddressingMode) {
-        self.mem_write(self.get_operand_address(mode), self.accumulator);
+        let addr = self.get_operand_address(mode);
+        println!("sta addr: {:x} | value: {:x}", addr, self.accumulator);
+        self.mem_write(addr, self.accumulator);
     }
 
     fn stx(&mut self, mode: &AddressingMode) {
