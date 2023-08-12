@@ -332,13 +332,14 @@ impl CPU {
                 high << 8 | low
             }
 
+            // I think this is wrong
             AddressingMode::Indirect_Y => {
                 let base = self.mem_read(self.program_counter);
 
                 let low = self.mem_read(base as u16) as u16;
                 let high = self.mem_read(base.wrapping_add(1) as u16) as u16;
-
-                self.mem_read_u16((high << 8 | low).wrapping_add(self.register_y as u16))
+                println!("Indirect_Y low: {:x} | high: {:x}", low, high);
+                (high << 8 | low).wrapping_add(self.register_y as u16)
             }
 
             AddressingMode::NoneAddressing => panic!("mode {:?} is not supported", mode),
@@ -409,29 +410,24 @@ impl CPU {
         }
     }
 
-    // let jump: i8 = self.mem_read(self.program_counter) as i8;
-    // let jump_addr = self
-    //     .program_counter
-    //     .wrapping_add(1)
-    //     .wrapping_add(jump as u16);
-
-    // println!(
-    //     "jump: {:x}| program counter: {:x} | program_counter add: {:x} | jump_addr: {:x}",
-    //     jump,
-    //     self.program_counter,
-    //     self.program_counter.wrapping_add(jump as u16),
-    //     self.program_counter.wrapping_add(jump as u16 + 1)
-    // );
-
-    // self.program_counter = jump_addr;
-
     fn bit(&mut self, mode: &AddressingMode) {
         let result = self.accumulator & self.mem_read(self.get_operand_address(mode));
         //need to rewrite these things with functions instead of rewriting the same function 1 bajillion times
+        //should write some function that takes bool/conditional and a flag ie. set_status_flag_conditionally(result & 0x80 != 0, NEGATIVE)
+        if result & 0x80 != 0 {
+            self.set_status_flag(NEGATIVE);
+        } else {
+            self.reset_status_flag(NEGATIVE);
+        }
         if result & 0x40 != 0 {
             self.set_status_flag(OVERFLOW);
         } else {
             self.reset_status_flag(OVERFLOW);
+        }
+        if result == 0 {
+            self.set_status_flag(ZERO);
+        } else {
+            self.reset_status_flag(ZERO);
         }
     }
 
@@ -488,6 +484,7 @@ impl CPU {
     fn lda(&mut self, mode: &AddressingMode) {
         let addr = self.get_operand_address(mode);
         let value = self.mem_read(addr);
+        println!("lda addr: {:x} | value: {:x}", addr, value);
 
         self.set_accumulator(value);
     }
@@ -614,9 +611,10 @@ impl CPU {
         self.program_counter = self.stack_pop_u16().wrapping_add(1);
     }
 
+    //turbo wrong
     fn sbc(&mut self, mode: &AddressingMode) {
         let accum = self.accumulator as u16;
-        let mem_val = (!self.mem_read(self.get_operand_address(mode)) as u16).wrapping_add(1); //Invert value at addr
+        let mem_val = (!self.mem_read(self.get_operand_address(mode)) as u16); //.wrapping_add(1); //Invert value at addr
         let sum = accum + mem_val + (self.status & CARRY) as u16;
 
         if sum > 0xFF {
