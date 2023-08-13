@@ -66,7 +66,7 @@ fn read_screen_state(cpu: &CPU, frame: &mut [u8; 32 * 3 * 32]) -> bool {
     for i in 0x200..0x600 {
         let color_idx = cpu.mem_read(i as u16);
         let (b1, b2, b3) = color(color_idx).rgb();
-        if frame[frame_idx] != b1 || frame[frame_idx + 1] != b2 || frame[frame_idx] != b3 {
+        if frame[frame_idx] != b1 || frame[frame_idx + 1] != b2 || frame[frame_idx + 2] != b3 {
             frame[frame_idx] = b1;
             frame[frame_idx + 1] = b2;
             frame[frame_idx + 2] = b3;
@@ -130,7 +130,8 @@ fn main() {
 
     cpu.run_with_callback(move |cpu| {
         handle_user_input(cpu, &mut event_pump);
-        cpu.mem_write(0xfe, rng.gen_range(1, 16));
+        cpu.mem_write(0xfe, 15);
+        // cpu.mem_write(0xfe, rng.gen_range(1, 16));
 
         if read_screen_state(cpu, &mut screen_state) {
             texture.update(None, &screen_state, 32 * 3).unwrap();

@@ -346,24 +346,29 @@ impl CPU {
         }
     }
 
-    fn adc(&mut self, mode: &AddressingMode) {
+    fn add_to_accum(&mut self, value: u16) {
         let accum = self.accumulator as u16;
-        let mem_val = self.mem_read(self.get_operand_address(mode)) as u16;
-        let sum = accum + mem_val + (self.status & CARRY) as u16;
+        let sum = accum + value + (self.status & CARRY) as u16;
 
         if sum > 0xFF {
             self.set_status_flag(CARRY);
+        } else {
+            self.reset_status_flag(CARRY);
         }
 
         let result = sum as u8;
 
-        if (mem_val as u8 ^ result) & (self.accumulator ^ result) & 0x80 != 0 {
+        if (value as u8 ^ result) & (self.accumulator ^ result) & 0x80 != 0 {
             self.set_status_flag(OVERFLOW);
         } else {
             self.reset_status_flag(OVERFLOW);
         }
 
         self.set_accumulator(result);
+    }
+
+    fn adc(&mut self, mode: &AddressingMode) {
+        self.add_to_accum(self.mem_read(self.get_operand_address(mode)) as u16);
     }
 
     fn and(&mut self, mode: &AddressingMode) {
@@ -411,15 +416,16 @@ impl CPU {
     }
 
     fn bit(&mut self, mode: &AddressingMode) {
-        let result = self.accumulator & self.mem_read(self.get_operand_address(mode));
+        let value = self.mem_read(self.get_operand_address(mode));
+        let result = self.accumulator & value;
         //need to rewrite these things with functions instead of rewriting the same function 1 bajillion times
         //should write some function that takes bool/conditional and a flag ie. set_status_flag_conditionally(result & 0x80 != 0, NEGATIVE)
-        if result & 0x80 != 0 {
+        if value & 0x80 != 0 {
             self.set_status_flag(NEGATIVE);
         } else {
             self.reset_status_flag(NEGATIVE);
         }
-        if result & 0x40 != 0 {
+        if value & 0x40 != 0 {
             self.set_status_flag(OVERFLOW);
         } else {
             self.reset_status_flag(OVERFLOW);
@@ -439,6 +445,7 @@ impl CPU {
         } else {
             self.reset_status_flag(CARRY);
         }
+
         self.update_zero_and_negative_flags(value.wrapping_sub(value2));
     }
 
@@ -543,7 +550,8 @@ impl CPU {
     }
 
     fn plp(&mut self) {
-        self.status = self.stack_pop();
+        let value = self.stack_pop();
+        self.status = value;
     }
 
     fn rol_accumulator(&mut self) {
@@ -572,33 +580,41 @@ impl CPU {
     }
 
     fn ror_accumulator(&mut self) {
-        let mut value = self.accumulator as u16;
+        let mut value = self.accumulator;
+        let carry_set = value & CARRY != 0;
+
+        value >>= 1;
 
         if self.status & CARRY != 0 {
             value |= 0x80 //set 7th bit high
         }
-        if value & 0x01 != 0 {
+
+        if carry_set {
             self.set_status_flag(CARRY)
         } else {
             self.reset_status_flag(CARRY)
         }
-        value >>= 1;
+
         self.set_accumulator((value & 0xFF) as u8);
     }
 
     fn ror(&mut self, mode: &AddressingMode) {
         let addr = self.get_operand_address(mode);
-        let mut value = self.mem_read(addr) as u16;
+        let mut value = self.mem_read(addr);
+        let carry_set = value & CARRY != 0;
+
+        value >>= 1;
 
         if self.status & CARRY != 0 {
             value |= 0x80 //set 7th bit high
         }
-        if value & 0x01 != 0 {
+
+        if carry_set {
             self.set_status_flag(CARRY)
         } else {
             self.reset_status_flag(CARRY)
         }
-        value >>= 1;
+
         self.mem_write(addr, (value & 0xFF) as u8);
     }
 
@@ -611,25 +627,9 @@ impl CPU {
         self.program_counter = self.stack_pop_u16().wrapping_add(1);
     }
 
-    //turbo wrong
     fn sbc(&mut self, mode: &AddressingMode) {
-        let accum = self.accumulator as u16;
-        let mem_val = (!self.mem_read(self.get_operand_address(mode)) as u16); //.wrapping_add(1); //Invert value at addr
-        let sum = accum + mem_val + (self.status & CARRY) as u16;
-
-        if sum > 0xFF {
-            self.set_status_flag(CARRY);
-        }
-
-        let result = sum as u8;
-
-        if (mem_val as u8 ^ result) & (self.accumulator ^ result) & 0x80 != 0 {
-            self.set_status_flag(OVERFLOW);
-        } else {
-            self.reset_status_flag(OVERFLOW);
-        }
-
-        self.set_accumulator(result);
+        let value = self.mem_read(self.get_operand_address(mode));
+        self.add_to_accum((!value) as u16)
     }
 
     fn sta(&mut self, mode: &AddressingMode) {
@@ -667,7 +667,7 @@ impl CPU {
 
     fn txs(&mut self) {
         self.stack_pointer = self.register_x;
-        self.update_zero_and_negative_flags(self.stack_pointer);
+        self.update_zero_and_negative_flags(self.register_x);
     }
 
     fn tya(&mut self) {
@@ -676,9 +676,9 @@ impl CPU {
 
     fn update_zero_and_negative_flags(&mut self, result: u8) {
         if result == 0 {
-            self.status |= ZERO;
+            self.set_status_flag(ZERO)
         } else {
-            self.status &= !ZERO;
+            self.reset_status_flag(ZERO)
         }
 
         if result & 0x80 != 0 {
@@ -696,38 +696,19 @@ impl CPU {
     }
 
     fn stack_push(&mut self, value: u8) {
-        // println!(
-        //     "stack_push | value: {:x} | memory_at_sp: {:x}",
-        //     value,
-        //     self.mem_read(STACK + self.stack_pointer as u16)
-        // );
-
         self.mem_write(STACK + self.stack_pointer as u16, value);
-        // println!(
-        //     "after memory_at_sp: {:x}",
-        //     self.mem_read(STACK + self.stack_pointer as u16)
-        // );
-
         self.stack_pointer = self.stack_pointer.wrapping_sub(1);
     }
 
     fn stack_push_u16(&mut self, value: u16) {
-        let low = value & 0xff as u16;
         let high = value >> 8;
+        let low = value & 0xff as u16;
         self.stack_push(high as u8);
         self.stack_push(low as u8);
     }
 
     fn stack_pop(&mut self) -> u8 {
-        // println!(
-        //     "stack_pop memory_at_sp: {:x}",
-        //     self.mem_read(STACK + self.stack_pointer as u16)
-        // );
         self.stack_pointer = self.stack_pointer.wrapping_add(1);
-        // println!(
-        //     "stack_pop memory_at_sp: {:x}",
-        //     self.mem_read(STACK + self.stack_pointer as u16)
-        // );
         self.mem_read(STACK + self.stack_pointer as u16)
     }
 

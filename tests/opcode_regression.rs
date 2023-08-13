@@ -1,5 +1,5 @@
 use rust_NES::{
-    cpu::{AddressingMode, CARRY, CPU},
+    cpu::{AddressingMode, CARRY, CPU, DECIMAL_MODE, INTERRUPT_DISABLE, NEGATIVE, OVERFLOW, ZERO},
     opcode::OPCODES_MAP,
 };
 
@@ -21,6 +21,16 @@ fn test_adc_from_memory() {
 
     assert_eq!(cpu.accumulator, 0x54);
     assert!(cpu.status & CARRY != 0);
+}
+
+#[test]
+fn test_adc_flags() {
+    let mut cpu = CPU::new();
+    cpu.load_and_run(vec![0xa9, 0xc0, 0x69, 0xc4, 0x00]);
+
+    assert_eq!(cpu.accumulator, 0x84);
+    assert!(cpu.status & CARRY == 1);
+    assert!(cpu.status & NEGATIVE == 1);
 }
 
 #[test]
@@ -64,7 +74,16 @@ fn test_adc_address_modes() {
 
 //AND
 #[test]
+fn test_and_from_memory() {
+    let mut cpu = CPU::new();
+    cpu.mem_write(0x10, 0x55);
 
+    cpu.load_and_run(vec![0xa5, 0x10, 0x29, 0xaa, 0x00]);
+
+    assert_eq!(cpu.accumulator, 0x00);
+}
+
+#[test]
 fn test_and_addressing_modes() {
     // 0x29 | 0x25 | 0x35 | 0x2D | 0x3D | 0x39 | 0x21 | 0x31
 
@@ -103,16 +122,23 @@ fn test_and_addressing_modes() {
     assert_eq!(and_indirect_y_opcode.mode, AddressingMode::Indirect_Y);
 }
 
+//ASL
 #[test]
-fn test_and_from_memory() {
+fn test_asl_from_memory() {
     let mut cpu = CPU::new();
     cpu.mem_write(0x10, 0x55);
 
-    cpu.load_and_run(vec![0xa5, 0x10, 0x29, 0xaa, 0x00]);
+    cpu.load_and_run(vec![0xa5, 0x10, 0x0a, 0x00]);
 
-    assert_eq!(cpu.accumulator, 0x00);
+    assert_eq!(cpu.accumulator, 0xAA);
+
+    cpu.mem_write(0x10, 0xA8);
+
+    cpu.load_and_run(vec![0x06, 0x10, 0xa5, 0x10, 0x00]);
+    assert_eq!(cpu.accumulator, 0x50);
+    assert!(cpu.status & CARRY != 0);
 }
-//ASL
+
 #[test]
 fn test_asl_addressing_modes() {
     // 0x0a => self.asl_accumulator(),
@@ -139,21 +165,7 @@ fn test_asl_addressing_modes() {
     assert_eq!(asl_absolute_opcode.mode, AddressingMode::Absolute);
     assert_eq!(asl_absolute_x_opcode.mode, AddressingMode::Absolute_X);
 }
-#[test]
-fn test_asl_from_memory() {
-    let mut cpu = CPU::new();
-    cpu.mem_write(0x10, 0x55);
 
-    cpu.load_and_run(vec![0xa5, 0x10, 0x0a, 0x00]);
-
-    assert_eq!(cpu.accumulator, 0xAA);
-
-    cpu.mem_write(0x10, 0xA8);
-
-    cpu.load_and_run(vec![0x06, 0x10, 0xa5, 0x10, 0x00]);
-    assert_eq!(cpu.accumulator, 0x50);
-    assert!(cpu.status & CARRY != 0);
-}
 //BCC
 #[test]
 fn test_bcc_addressing_modes() {
@@ -185,6 +197,17 @@ fn test_beq_addressing_modes() {
     assert_eq!(beq_opcode.mode, AddressingMode::NoneAddressing);
 }
 //BIT
+#[test]
+fn test_bit() {
+    let mut cpu = CPU::new();
+    cpu.mem_write(0x10, 0xff);
+
+    cpu.load_and_run(vec![0xa9, 0x00, 0x24, 0x10, 0x00]);
+    assert!(cpu.status & NEGATIVE != 0);
+    assert!(cpu.status & OVERFLOW != 0);
+    assert!(cpu.status & ZERO != 0);
+}
+
 #[test]
 fn test_bit_addressing_modes() {
     // 0x24 | 0x2c => self.bit(&opcode.mode),
@@ -252,6 +275,14 @@ fn test_bvs_addressing_modes() {
 }
 //CLC
 #[test]
+fn test_clc() {
+    let mut cpu = CPU::new();
+    cpu.status = 0xff;
+
+    cpu.load_and_run(vec![0x18, 0x00]);
+    assert!(cpu.status & CARRY == 0);
+}
+#[test]
 fn test_clc_addressing_modes() {
     // 0x18 => self.reset_status_flag(CARRY),
 
@@ -261,6 +292,15 @@ fn test_clc_addressing_modes() {
     assert_eq!(clc_opcode.mode, AddressingMode::NoneAddressing);
 }
 //CLD
+#[test]
+fn test_cld() {
+    let mut cpu = CPU::new();
+    cpu.status = 0xff;
+
+    cpu.load_and_run(vec![0xd8, 0x00]);
+    assert!(cpu.status & DECIMAL_MODE == 0);
+}
+
 #[test]
 fn test_cld_addressing_modes() {
     // 0xd8 => self.reset_status_flag(DECIMAL_MODE),
@@ -272,6 +312,15 @@ fn test_cld_addressing_modes() {
 }
 //CLI
 #[test]
+fn test_cli() {
+    let mut cpu = CPU::new();
+    cpu.status = 0xff;
+
+    cpu.load_and_run(vec![0x58, 0x00]);
+    assert!(cpu.status & INTERRUPT_DISABLE == 0);
+}
+
+#[test]
 fn test_cli_addressing_modes() {
     // 0x58 => self.reset_status_flag(INTERRUPT_DISABLE),
 
@@ -282,6 +331,15 @@ fn test_cli_addressing_modes() {
 }
 //CLV
 #[test]
+fn test_clv() {
+    let mut cpu = CPU::new();
+    cpu.status = 0xff;
+
+    cpu.load_and_run(vec![0xb8, 0x00]);
+    assert!(cpu.status & OVERFLOW == 0);
+}
+
+#[test]
 fn test_clv_addressing_modes() {
     // 0xb8 => self.reset_status_flag(OVERFLOW),
 
@@ -291,6 +349,15 @@ fn test_clv_addressing_modes() {
     assert_eq!(clv_opcode.mode, AddressingMode::NoneAddressing);
 }
 //CMP
+#[test]
+fn test_cmp() {
+    let mut cpu = CPU::new();
+    cpu.load_and_run(vec![0xa9, 0xff, 0xc9, 0xff]);
+
+    assert!(cpu.status & CARRY != 0);
+    assert!(cpu.status & NEGATIVE == 0);
+}
+
 #[test]
 fn test_cmp_addressing_modes() {
     // 0xc9 | 0xc5 | 0xd5 | 0xcd | 0xdd | 0xd9 | 0xc1 | 0xd1
@@ -369,6 +436,15 @@ fn test_cpy_addressing_modes() {
 }
 //DEC
 #[test]
+fn test_dec() {
+    let mut cpu = CPU::new();
+    cpu.mem_write(0x10, 0x00);
+    cpu.load_and_run(vec![0xc6, 0x10, 0x00]);
+
+    assert!(cpu.status & NEGATIVE != 0);
+}
+
+#[test]
 fn test_dec_addressing_modes() {
     // 0xc6 | 0xd6 | 0xce | 0xde
 
@@ -392,6 +468,15 @@ fn test_dec_addressing_modes() {
 }
 //DEX
 #[test]
+fn test_dex() {
+    let mut cpu = CPU::new();
+    cpu.load_and_run(vec![0xa2, 0x00, 0xca, 0x00]);
+
+    assert_eq!(cpu.register_x, 0xff);
+    assert!(cpu.status & NEGATIVE != 0);
+}
+
+#[test]
 fn test_dex_addressing_modes() {
     // 0xca => self.dex(),
 
@@ -402,6 +487,15 @@ fn test_dex_addressing_modes() {
 }
 //DEY
 #[test]
+fn test_dey() {
+    let mut cpu = CPU::new();
+    cpu.load_and_run(vec![0xa0, 0x00, 0x88, 0x00]);
+
+    assert_eq!(cpu.register_y, 0xff);
+    assert!(cpu.status & NEGATIVE != 0);
+}
+
+#[test]
 fn test_dey_addressing_modes() {
     // 0x88 => self.dey(),
 
@@ -411,6 +505,15 @@ fn test_dey_addressing_modes() {
     assert_eq!(dey_opcode.mode, AddressingMode::NoneAddressing);
 }
 //EOR
+#[test]
+fn test_eor() {
+    let mut cpu = CPU::new();
+    cpu.load_and_run(vec![0xa9, 0xaa, 0x49, 0x55, 0x00]);
+
+    assert_eq!(cpu.accumulator, 0xff);
+    assert!(cpu.status & NEGATIVE != 0);
+}
+
 #[test]
 fn test_eor_addressing_modes() {
     // 0x49 | 0x45 | 0x55 | 0x4d | 0x5d | 0x59 | 0x41 | 0x51
@@ -449,6 +552,15 @@ fn test_eor_addressing_modes() {
     assert_eq!(eor_indirect_y_opcode.mode, AddressingMode::Indirect_Y);
 }
 //INC
+#[test]
+fn test_inc() {
+    let mut cpu = CPU::new();
+    cpu.mem_write(0x10, 0xff);
+
+    cpu.load_and_run(vec![0xe6, 0x10, 0x00]);
+    assert!(cpu.status & ZERO != 0);
+}
+
 #[test]
 fn test_inc_addressing_modes() {
     // 0xe6 | 0xf6 | 0xee | 0xfe
@@ -525,6 +637,33 @@ fn test_jsr_addressing_modes() {
         .unwrap_or_else(|| panic!("OpCode {:x} is not recognized", 0x20));
     assert_eq!(jsr_opcode.mode, AddressingMode::Absolute);
 }
+
+#[test]
+fn test_lda_from_memory() {
+    let mut cpu = CPU::new();
+    cpu.mem_write(0x10, 0x55);
+
+    cpu.load_and_run(vec![0xa5, 0x10, 0x00]);
+
+    assert_eq!(cpu.accumulator, 0x55);
+}
+
+#[test]
+fn test_lda_zero_flag() {
+    let mut cpu = CPU::new();
+    cpu.load_and_run(vec![0xa9, 0x00, 0x00]);
+    assert!(cpu.status & 0b0000_0010 == 0b10);
+}
+
+#[test]
+fn test_lda_immediate_load_order() {
+    let mut cpu = CPU::new();
+    cpu.load_and_run(vec![0xa9, 0x05, 0x00]);
+    assert_eq!(cpu.accumulator, 0x05);
+    assert!(cpu.status & 0b0000_0010 == 0b00);
+    assert!(cpu.status & 0b1000_0000 == 0);
+}
+
 //LDA
 #[test]
 fn test_lda_addressing_modes() {
@@ -565,31 +704,6 @@ fn test_lda_addressing_modes() {
     assert_eq!(lda_indirect_y_opcode.mode, AddressingMode::Indirect_Y);
 }
 
-#[test]
-fn test_lda_from_memory() {
-    let mut cpu = CPU::new();
-    cpu.mem_write(0x10, 0x55);
-
-    cpu.load_and_run(vec![0xa5, 0x10, 0x00]);
-
-    assert_eq!(cpu.accumulator, 0x55);
-}
-
-#[test]
-fn test_lda_zero_flag() {
-    let mut cpu = CPU::new();
-    cpu.load_and_run(vec![0xa9, 0x00, 0x00]);
-    assert!(cpu.status & 0b0000_0010 == 0b10);
-}
-
-#[test]
-fn test_lda_immediate_load_order() {
-    let mut cpu = CPU::new();
-    cpu.load_and_run(vec![0xa9, 0x05, 0x00]);
-    assert_eq!(cpu.accumulator, 0x05);
-    assert!(cpu.status & 0b0000_0010 == 0b00);
-    assert!(cpu.status & 0b1000_0000 == 0);
-}
 //LDX
 #[test]
 fn test_ldx_addressing_modes() {
@@ -646,6 +760,15 @@ fn test_ldy_addressing_modes() {
 }
 //LSR
 #[test]
+fn test_lsr() {
+    let mut cpu = CPU::new();
+
+    cpu.load_and_run(vec![0xa9, 0x5, 0x4a, 0x00]);
+    assert_eq!(cpu.accumulator, 0x02);
+    assert!(cpu.status & CARRY != 0);
+}
+
+#[test]
 fn test_lsr_addressing_modes() {
     // 0x4a => self.lsr_accumulator(),
     // //LSR
@@ -684,6 +807,15 @@ fn test_nop_addressing_modes() {
     assert_eq!(nop_opcode.mode, AddressingMode::NoneAddressing);
 }
 //ORA
+#[test]
+fn test_ora() {
+    let mut cpu = CPU::new();
+
+    cpu.load_and_run(vec![0xa9, 0xaa, 0x09, 0x55, 0x00]);
+    assert_eq!(cpu.accumulator, 0xff);
+    assert!(cpu.status & NEGATIVE != 0);
+}
+
 #[test]
 fn test_ora_addressing_modes() {
     // 0x09 | 0x05 | 0x15 | 0x0d | 0x1d | 0x19 | 0x01 | 0x11
@@ -764,6 +896,16 @@ fn test_plp_addressing_modes() {
 }
 //ROL
 #[test]
+fn test_rol() {
+    let mut cpu = CPU::new();
+
+    cpu.load_and_run(vec![0xa9, 0xff, 0x2a, 0x00]);
+    assert_eq!(cpu.accumulator, 0xfe);
+    assert!(cpu.status & NEGATIVE != 0);
+    assert!(cpu.status & CARRY != 0);
+}
+
+#[test]
 fn test_rol_addressing_modes() {
     // 0x2a => self.rol_accumulator(),
     // //ROL
@@ -792,6 +934,17 @@ fn test_rol_addressing_modes() {
     assert_eq!(rol_absolute_x_opcode.mode, AddressingMode::Absolute_X);
 }
 //ROR
+//ROL
+#[test]
+fn test_ror() {
+    let mut cpu = CPU::new();
+
+    cpu.load_and_run(vec![0xa9, 0xff, 0x38, 0x6a, 0x00]);
+    assert_eq!(cpu.accumulator, 0xff);
+    assert!(cpu.status & NEGATIVE != 0);
+    assert!(cpu.status & CARRY != 0);
+}
+
 #[test]
 fn test_ror_addressing_modes() {
     // 0x6a => self.ror_accumulator(),
@@ -841,6 +994,15 @@ fn test_rts_addressing_modes() {
     assert_eq!(rts_opcode.mode, AddressingMode::NoneAddressing);
 }
 //SBC
+#[test]
+fn test_sbc() {
+    let mut cpu = CPU::new();
+
+    cpu.load_and_run(vec![0xa9, 0xc0, 0xe9, 0xc4, 0x00]);
+    assert_eq!(cpu.accumulator, 0xfb);
+    assert!(cpu.status & NEGATIVE != 0);
+}
+
 #[test]
 fn test_sbc_addressing_modes() {
     // 0xe9 | 0xe5 | 0xf5 | 0xed | 0xfd | 0xf9 | 0xe1 | 0xf1
