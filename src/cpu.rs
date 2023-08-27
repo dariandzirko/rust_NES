@@ -1,4 +1,8 @@
-use crate::opcode::OPCODES_MAP;
+use std::arch::x86_64::CpuidResult;
+use std::collections::HashMap;
+
+use crate::bus::Bus;
+use crate::opcode::{self, OPCODES_MAP};
 
 #[derive(Debug, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
@@ -46,11 +50,48 @@ pub struct CPU {
     pub status: u8,
     pub stack_pointer: u8,
     pub program_counter: u16,
-    memory: [u8; 0xFFFF],
+    pub bus: Bus,
+}
+
+pub trait Mem {
+    fn mem_read(&self, addr: u16) -> u8;
+
+    fn mem_write(&mut self, addr: u16, data: u8);
+
+    fn mem_read_u16(&self, pos: u16) -> u16 {
+        let low = self.mem_read(pos) as u16;
+        let high = self.mem_read(pos + 1) as u16;
+        (high << 8) | low
+    }
+
+    fn mem_write_u16(&mut self, pos: u16, data: u16) {
+        let high = (data >> 8) as u8;
+        let low = (data & 0xff) as u8;
+        self.mem_write(pos, low);
+        self.mem_write(pos + 1, high);
+    }
+}
+
+impl Mem for CPU {
+    fn mem_read(&self, addr: u16) -> u8 {
+        self.bus.mem_read(addr)
+    }
+
+    fn mem_write(&mut self, addr: u16, data: u8) {
+        self.mem_write(addr, data)
+    }
+
+    fn mem_read_u16(&self, pos: u16) -> u16 {
+        self.mem_read_u16(pos)
+    }
+
+    fn mem_write_u16(&mut self, pos: u16, data: u16) {
+        self.bus.mem_write_u16(pos, data);
+    }
 }
 
 impl CPU {
-    pub fn new() -> Self {
+    pub fn new(bus: Bus) -> Self {
         CPU {
             accumulator: 0,
             register_x: 0,
@@ -58,32 +99,13 @@ impl CPU {
             status: 0,
             stack_pointer: STACK_RESET,
             program_counter: 0,
-            memory: [0; 0xFFFF],
+            bus: bus,
         }
     }
 
     pub fn print_state(&self) {
         println!("accumulator: {:x} | register_x: {:x} | register_y: {:x} | status: {:x} | stack_pointer: {:x} | program_counter: {:x}",
         self.accumulator, self.register_x, self.register_y, self.status, self.stack_pointer, self.program_counter);
-    }
-
-    pub fn mem_read(&self, addr: u16) -> u8 {
-        self.memory[addr as usize]
-    }
-
-    pub fn mem_write(&mut self, addr: u16, data: u8) {
-        self.memory[addr as usize] = data;
-    }
-
-    fn mem_read_u16(&self, pos: u16) -> u16 {
-        let low = self.mem_read(pos);
-        let high = self.mem_read(pos + 1);
-        (high as u16) << 8 | low as u16
-    }
-
-    fn mem_write_u16(&mut self, pos: u16, data: u16) {
-        self.mem_write(pos, ((data & 0xFF) as u8));
-        self.mem_write(pos + 1, ((data >> 8) as u8));
     }
 
     pub fn reset(&mut self) {
@@ -96,7 +118,9 @@ impl CPU {
     }
 
     pub fn load(&mut self, program: Vec<u8>) {
-        self.memory[0x0600..(0x0600 + program.len())].copy_from_slice(&program[..]);
+        for i in 0..(program.len() as u16) {
+            self.mem_write(0x0000 + i, program[i as usize])
+        }
         self.mem_write_u16(0xFFFC, 0x0600);
     }
 
@@ -123,7 +147,8 @@ impl CPU {
     where
         F: FnMut(&mut CPU),
     {
-        let opcodes = &OPCODES_MAP;
+        let ref opcodes: HashMap<u8, &'static opcode::OpCode> = *opcode::OPCODES_MAP;
+
         loop {
             callback(self);
 
